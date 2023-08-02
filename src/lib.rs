@@ -18,21 +18,21 @@
 //! # use ttl_queue::TtlQueue;
 //! let mut fps_counter = TtlQueue::new(Duration::from_secs_f64(1.0));
 //!
-//! for i in 0..100 {
+//! for i in 0..=50 {
 //!     // Register a new frame and return the number of frames observed
 //!     // within the last second.
 //!     let fps = fps_counter.refresh_and_push_back(());
 //!     debug_assert!(fps >= 1);
 //!
-//!     // Sleep 10 ms to achieve a ~100 Hz frequency.
-//!     thread::sleep(Duration::from_millis(10));
+//!     // Sleep ~20 ms to achieve a ~50 Hz frequency.
+//!     thread::sleep(Duration::from_millis(19));
 //! }
 //!
 //! let fps = fps_counter.refresh();
-//! debug_assert!(fps >= 95 && fps <= 105);
+//! debug_assert!(fps >= 45 && fps <= 55);
 //!
 //! let delta = fps_counter.avg_delta();
-//! debug_assert!(delta >= Duration::from_millis(9) && delta <= Duration::from_millis(11));
+//! debug_assert!(delta >= Duration::from_millis(19) && delta <= Duration::from_millis(21));
 //! ```
 
 use std::time::Duration;
@@ -58,21 +58,21 @@ use std::collections::VecDeque;
 /// # use ttl_queue::TtlQueue;
 /// let mut fps_counter = TtlQueue::new(Duration::from_secs_f64(1.0));
 ///
-/// for i in 0..100 {
+/// for i in 0..=50 {
 ///     // Register a new frame and return the number of frames observed
 ///     // within the last second.
 ///     let fps = fps_counter.refresh_and_push_back(());
 ///     debug_assert!(fps >= 1);
 ///
-///     // Sleep 10 ms to achieve a ~100 Hz frequency.
-///     thread::sleep(Duration::from_millis(10));
+///     // Sleep ~20 ms to achieve a ~50 Hz frequency.
+///     thread::sleep(Duration::from_millis(19));
 /// }
 ///
 /// let fps = fps_counter.refresh();
-/// debug_assert!(fps >= 95 && fps <= 105);
+/// debug_assert!(fps >= 45 && fps <= 55);
 ///
 /// let delta = fps_counter.avg_delta();
-/// debug_assert!(delta >= Duration::from_millis(9) && delta <= Duration::from_millis(11));
+/// debug_assert!(delta >= Duration::from_millis(19) && delta <= Duration::from_millis(21));
 /// ```
 #[derive(Debug)]
 pub struct TtlQueue<T> {
@@ -459,5 +459,26 @@ mod tests {
 
         let avg = queue.avg_delta();
         assert_eq!(avg, Duration::ZERO);
+    }
+
+    #[test]
+    fn fps_counter() {
+        let mut fps_counter = TtlQueue::new(Duration::from_secs(1));
+
+        for _i in 0..50 {
+            // Register a new frame and return the number of frames observed
+            // within the last second.
+            let fps = fps_counter.refresh_and_push_back(());
+            debug_assert!(fps >= 1);
+
+            // Sleep ~20 ms to achieve a ~50 Hz frequency.
+            thread::sleep(Duration::from_millis(19));
+        }
+
+        let fps = fps_counter.refresh();
+        debug_assert!(fps >= 45 && fps <= 55);
+
+        let delta = fps_counter.avg_delta();
+        debug_assert!(delta >= Duration::from_millis(19) && delta <= Duration::from_millis(21));
     }
 }

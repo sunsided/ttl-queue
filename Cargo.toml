@@ -6,7 +6,7 @@ keywords = ["queue", "ttl", "fps-counter"]
 categories = ["data-structures", "game-development"]
 repository = "https://github.com/sunsided/ttl-queue.git"
 homepage = "https://github.com/sunsided/ttl-queue"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 license = "EUPL-1.2"
 
