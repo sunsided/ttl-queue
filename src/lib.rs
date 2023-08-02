@@ -1,12 +1,24 @@
+use std::time::Duration;
+
+#[cfg(not(feature = "tokio"))]
+use std::time::Instant;
+
+#[cfg(feature = "tokio")]
+use std::time::Instant;
+
+#[cfg(feature = "vecdeque")]
 use std::collections::VecDeque;
-use std::time::{Duration, Instant};
 
 /// A queue that drops its content after a given amount of time.
 #[derive(Debug)]
 pub struct TimedQueue<T> {
     ttl: Duration,
+    #[cfg(feature = "doublestack")]
     stack_1: Vec<(Instant, T)>,
+    #[cfg(feature = "doublestack")]
     stack_2: Vec<(Instant, T)>,
+    #[cfg(feature = "vecdeque")]
+    queue: VecDeque<(Instant, T)>,
 }
 
 impl<T> TimedQueue<T> {
@@ -14,8 +26,12 @@ impl<T> TimedQueue<T> {
     pub fn new(ttl: Duration) -> Self {
         Self {
             ttl,
+            #[cfg(feature = "doublestack")]
             stack_1: Vec::new(),
+            #[cfg(feature = "doublestack")]
             stack_2: Vec::new(),
+            #[cfg(feature = "vecdeque")]
+            queue: VecDeque::new(),
         }
     }
 
@@ -23,14 +39,26 @@ impl<T> TimedQueue<T> {
     pub fn with_capacity(ttl: Duration, capacity: usize) -> Self {
         Self {
             ttl,
+            #[cfg(feature = "doublestack")]
             stack_1: Vec::with_capacity(capacity),
+            #[cfg(feature = "doublestack")]
             stack_2: Vec::with_capacity(capacity),
+            #[cfg(feature = "vecdeque")]
+            queue: VecDeque::with_capacity(capacity),
         }
     }
 
     /// Pushes an element to the end of the queue.
     pub fn push_back(&mut self, element: T) {
-        self.stack_1.push((Instant::now(), element));
+        let entry = (Instant::now(), element);
+        #[cfg(feature = "doublestack")]
+        {
+            self.stack_1.push(entry);
+        }
+        #[cfg(feature = "vecdeque")]
+        {
+            self.queue.push_back(entry)
+        }
     }
 
     /// Pushes an element to the end of the queue and returns the number of items
@@ -44,16 +72,31 @@ impl<T> TimedQueue<T> {
     /// Gets the element from the front of the queue if it exists, as well as the
     /// time instant at which it was added.
     pub fn pop_front(&mut self) -> Option<(Instant, T)> {
-        self.ensure_stack_full();
-        self.stack_2.pop()
+        #[cfg(feature = "doublestack")]
+        {
+            self.ensure_stack_full();
+            self.stack_2.pop()
+        }
+        #[cfg(feature = "vecdeque")]
+        {
+            self.queue.pop_front()
+        }
     }
 
     /// Similar to [`pop_front`](Self::pop_front) but without removing the element.
     pub fn peek_front(&mut self) -> Option<&(Instant, T)> {
-        self.ensure_stack_full();
-        self.stack_2.first()
+        #[cfg(feature = "doublestack")]
+        {
+            self.ensure_stack_full();
+            self.stack_2.first()
+        }
+        #[cfg(feature = "vecdeque")]
+        {
+            self.queue.front()
+        }
     }
 
+    #[cfg(feature = "doublestack")]
     fn ensure_stack_full(&mut self) {
         if self.stack_2.is_empty() {
             while let Some(item) = self.stack_1.pop() {
@@ -67,7 +110,14 @@ impl<T> TimedQueue<T> {
     /// This operation is O(1). In order to obtain an accurate count in O(N) (worst-case),
     /// use [`refresh`](Self::refresh) instead.
     pub fn len(&self) -> usize {
-        self.stack_1.len() + self.stack_2.len()
+        #[cfg(feature = "doublestack")]
+        {
+            self.stack_1.len() + self.stack_2.len()
+        }
+        #[cfg(feature = "vecdeque")]
+        {
+            self.queue.len()
+        }
     }
 
     /// Returns `true` if the queue is definitely empty or `false` if the queue is
@@ -76,10 +126,18 @@ impl<T> TimedQueue<T> {
     /// This operation is O(1). In order to obtain an accurate count in O(N) (worst-case),
     /// use [`refresh`](Self::refresh) instead.
     pub fn is_empty(&self) -> bool {
-        self.stack_1.is_empty() && self.stack_2.is_empty()
+        #[cfg(feature = "doublestack")]
+        {
+            self.stack_1.is_empty() && self.stack_2.is_empty()
+        }
+        #[cfg(feature = "vecdeque")]
+        {
+            self.queue.is_empty()
+        }
     }
 
     /// Refreshes the queue and returns the number of currently contained elements.
+    #[cfg(feature = "doublestack")]
     pub fn refresh(&mut self) -> usize {
         let now = Instant::now();
 
@@ -107,6 +165,23 @@ impl<T> TimedQueue<T> {
 
         debug_assert_eq!(self.stack_1.len(), self.len());
         self.stack_1.len()
+    }
+
+    /// Refreshes the queue and returns the number of currently contained elements.
+    #[cfg(feature = "vecdeque")]
+    pub fn refresh(&mut self) -> usize {
+        let now = Instant::now();
+
+        while let Some((instant, _element)) = self.queue.front() {
+            if (now - *instant) < self.ttl {
+                break;
+            }
+
+            let _result = self.queue.pop_front();
+            debug_assert!(_result.is_some());
+        }
+
+        self.queue.len()
     }
 }
 
