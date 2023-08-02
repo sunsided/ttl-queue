@@ -13,10 +13,10 @@
 //! To implement an FPS counter, you could use the following technique:
 //!
 //! ```
-//! use std::thread;
-//! use std::time::Duration;
-//! use timed_queue::TimedQueue;
-//! let mut fps_counter = TimedQueue::new(Duration::from_secs_f64(1.0));
+//! # use std::thread;
+//! # use std::time::Duration;
+//! # use ttl_queue::TtlQueue;
+//! let mut fps_counter = TtlQueue::new(Duration::from_secs_f64(1.0));
 //!
 //! for i in 0..100 {
 //!     // Register a new frame and return the number of frames observed
@@ -50,10 +50,10 @@ use std::collections::VecDeque;
 /// To implement an FPS counter, you could use the following technique:
 ///
 /// ```
-/// use std::thread;
-/// use std::time::Duration;
-/// use timed_queue::TimedQueue;
-/// let mut fps_counter = TimedQueue::new(Duration::from_secs_f64(1.0));
+/// # use std::thread;
+/// # use std::time::Duration;
+/// # use ttl_queue::TtlQueue;
+/// let mut fps_counter = TtlQueue::new(Duration::from_secs_f64(1.0));
 ///
 /// for i in 0..100 {
 ///     // Register a new frame and return the number of frames observed
@@ -69,7 +69,7 @@ use std::collections::VecDeque;
 /// debug_assert!(fps >= 95 && fps <= 105);
 /// ```
 #[derive(Debug)]
-pub struct TimedQueue<T> {
+pub struct TtlQueue<T> {
     ttl: Duration,
     #[cfg(feature = "doublestack")]
     stack_1: Vec<(Instant, T)>,
@@ -79,8 +79,8 @@ pub struct TimedQueue<T> {
     queue: VecDeque<(Instant, T)>,
 }
 
-impl<T> TimedQueue<T> {
-    /// Creates an empty [`TimedQueue`] with default capacity.
+impl<T> TtlQueue<T> {
+    /// Creates an empty [`TtlQueue`] with default capacity.
     pub fn new(ttl: Duration) -> Self {
         Self {
             ttl,
@@ -93,7 +93,7 @@ impl<T> TimedQueue<T> {
         }
     }
 
-    /// Creates an empty [`TimedQueue`] for at least `capacity` elements.
+    /// Creates an empty [`TtlQueue`] for at least `capacity` elements.
     pub fn with_capacity(ttl: Duration, capacity: usize) -> Self {
         Self {
             ttl,
@@ -250,7 +250,7 @@ mod tests {
 
     #[test]
     fn it_works() {
-        let mut queue = TimedQueue::new(Duration::from_millis(50));
+        let mut queue = TtlQueue::new(Duration::from_millis(50));
         queue.push_back(10);
         queue.push_back(20);
         queue.push_back(30);

@@ -1,5 +1,9 @@
 [package]
-name = "timed-queue"
+name = "ttl-queue"
+description = "A queue that drops its content after a given amount of time."
+authors = ["Markus Mayer"]
+keywords = ["queue", "ttl", "fps-counter"]
+categories = ["data-structures", "game-development"]
 version = "0.1.0"
 edition = "2021"
 license = "EUPL-1.2"

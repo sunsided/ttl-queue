@@ -9,8 +9,9 @@ To implement an FPS counter, you could use the following technique:
 ```
 use std::thread;
 use std::time::Duration;
-use timed_queue::TimedQueue;
-let mut fps_counter = TimedQueue::new(Duration::from_secs_f64(1.0));
+use ttl_queue::TtlQueue;
+
+let mut fps_counter = TtlQueue::new(Duration::from_secs_f64(1.0));
 
 for i in 0..100 {
     // Register a new frame and return the number of frames observed
