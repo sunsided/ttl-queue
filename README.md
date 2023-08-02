@@ -6,23 +6,25 @@ A queue that drops its content after a given amount of time.
 
 To implement an FPS counter, you could use the following technique:
 
-```
+```rust
 use std::thread;
 use std::time::Duration;
 use ttl_queue::TtlQueue;
 
-let mut fps_counter = TtlQueue::new(Duration::from_secs_f64(1.0));
+fn main() {
+    let mut fps_counter = TtlQueue::new(Duration::from_secs_f64(1.0));
 
-for i in 0..100 {
-    // Register a new frame and return the number of frames observed
-    // within the last second.
-    let fps = fps_counter.refresh_and_push_back(());
-    debug_assert!(fps >= 1);
+    for i in 0..100 {
+        // Register a new frame and return the number of frames observed
+        // within the last second.
+        let fps = fps_counter.refresh_and_push_back(());
+        debug_assert!(fps >= 1);
 
-    // Sleep 10 ms to achieve a ~100 Hz frequency.
-    thread::sleep(Duration::from_millis(10));
+        // Sleep 10 ms to achieve a ~100 Hz frequency.
+        thread::sleep(Duration::from_millis(10));
+    }
+
+    let fps = fps_counter.refresh();
+    debug_assert!(fps >= 95 && fps <= 105);
 }
-
-let fps = fps_counter.refresh();
-debug_assert!(fps >= 95 && fps <= 105);
 ```
