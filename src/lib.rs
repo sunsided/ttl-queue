@@ -267,12 +267,18 @@ impl<T> TtlQueue<T> {
 
     /// Returns the average duration between two events.
     pub fn avg_delta(&self) -> Duration {
+        if self.len() <= 1 {
+            return Duration::ZERO;
+        }
+
         let (count, sum) = self
             .iter()
             .zip(self.iter().skip(1))
             .fold((0, Duration::ZERO), |(count, sum), (lhs, rhs)| {
                 (count + 1, sum + (rhs.0 - lhs.0))
             });
+
+        debug_assert_ne!(count, 0);
         sum / count
     }
 }
@@ -436,5 +442,22 @@ mod tests {
 
         let avg = queue.avg_delta();
         assert_eq!(avg, Duration::from_secs(1));
+    }
+
+    #[test]
+    fn avg_duration_with_zero_inputs_works() {
+        let queue = TtlQueue::<()>::new(Duration::MAX);
+
+        let avg = queue.avg_delta();
+        assert_eq!(avg, Duration::ZERO);
+    }
+
+    #[test]
+    fn avg_duration_with_one_inputs_works() {
+        let mut queue = TtlQueue::new(Duration::MAX);
+        queue.push_back(());
+
+        let avg = queue.avg_delta();
+        assert_eq!(avg, Duration::ZERO);
     }
 }
