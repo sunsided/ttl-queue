@@ -132,7 +132,7 @@ impl<T> TtlQueue<T> {
     pub fn pop_front(&mut self) -> Option<(Instant, T)> {
         #[cfg(feature = "doublestack")]
         {
-            self.ensure_stack_full();
+            self.ensure_stack_full(false);
             self.stack_2.pop()
         }
         #[cfg(feature = "vecdeque")]
@@ -145,7 +145,7 @@ impl<T> TtlQueue<T> {
     pub fn peek_front(&mut self) -> Option<&(Instant, T)> {
         #[cfg(feature = "doublestack")]
         {
-            self.ensure_stack_full();
+            self.ensure_stack_full(false);
             self.stack_2.first()
         }
         #[cfg(feature = "vecdeque")]
@@ -155,8 +155,8 @@ impl<T> TtlQueue<T> {
     }
 
     #[cfg(feature = "doublestack")]
-    fn ensure_stack_full(&mut self) {
-        if self.stack_2.is_empty() {
+    fn ensure_stack_full(&mut self, force: bool) {
+        if self.stack_2.is_empty() || force {
             while let Some(item) = self.stack_1.pop() {
                 self.stack_2.push(item);
             }
@@ -241,6 +241,104 @@ impl<T> TtlQueue<T> {
 
         self.queue.len()
     }
+
+    /// Returns an iterator to the data.
+    pub fn iter(&self) -> impl Iterator<Item = &(Instant, T)> {
+        #[cfg(feature = "doublestack")]
+        {
+            return DoubleStackIterator::new(&self);
+        }
+        #[cfg(feature = "vecdeque")]
+        {
+            self.queue.iter()
+        }
+    }
+}
+
+impl<T> IntoIterator for TtlQueue<T> {
+    type Item = (Instant, T);
+
+    #[cfg(feature = "vecdeque")]
+    type IntoIter = std::collections::vec_deque::IntoIter<Self::Item>;
+
+    #[cfg(feature = "doublestack")]
+    type IntoIter = std::iter::Chain<
+        std::iter::Rev<std::vec::IntoIter<Self::Item>>,
+        std::vec::IntoIter<Self::Item>,
+    >;
+
+    fn into_iter(self) -> Self::IntoIter {
+        #[cfg(feature = "vecdeque")]
+        {
+            self.queue.into_iter()
+        }
+        #[cfg(feature = "doublestack")]
+        {
+            self.stack_2
+                .into_iter()
+                .rev()
+                .chain(self.stack_1.into_iter())
+        }
+    }
+}
+
+#[cfg(feature = "doublestack")]
+pub struct DoubleStackIterator<'a, T> {
+    queue: &'a TtlQueue<T>,
+    stage: DoubleStackIteratorStage<'a, T>,
+}
+
+#[cfg(feature = "doublestack")]
+enum DoubleStackIteratorStage<'a, T> {
+    First(std::iter::Rev<std::slice::Iter<'a, (Instant, T)>>),
+    Second(std::slice::Iter<'a, (Instant, T)>),
+    Done,
+}
+
+#[cfg(feature = "doublestack")]
+impl<'a, T> Iterator for DoubleStackIteratorStage<'a, T> {
+    type Item = &'a (Instant, T);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            DoubleStackIteratorStage::First(iter) => iter.next(),
+            DoubleStackIteratorStage::Second(iter) => iter.next(),
+            DoubleStackIteratorStage::Done => None,
+        }
+    }
+}
+
+#[cfg(feature = "doublestack")]
+impl<'a, T> DoubleStackIterator<'a, T> {
+    pub fn new(queue: &'a TtlQueue<T>) -> Self {
+        Self {
+            queue,
+            stage: DoubleStackIteratorStage::First(queue.stack_2.iter().rev()),
+        }
+    }
+}
+
+#[cfg(feature = "doublestack")]
+impl<'a, T> Iterator for DoubleStackIterator<'a, T> {
+    type Item = &'a (Instant, T);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            if let Some(element) = self.stage.next() {
+                return Some(element);
+            }
+
+            if matches!(self.stage, DoubleStackIteratorStage::First(..)) {
+                self.stage = DoubleStackIteratorStage::Second(self.queue.stack_1.iter());
+                continue;
+            }
+
+            debug_assert!(matches!(self.stage, DoubleStackIteratorStage::Second(..)));
+
+            self.stage = DoubleStackIteratorStage::Done;
+            return None;
+        }
+    }
 }
 
 #[cfg(test)]
@@ -263,5 +361,45 @@ mod tests {
 
         thread::sleep(Duration::from_millis(50));
         assert_eq!(queue.refresh(), 0);
+    }
+
+    #[test]
+    fn iter_works() {
+        let mut queue = TtlQueue::new(Duration::MAX);
+        for i in 0..1000 {
+            queue.push_back((i * 10) as usize);
+
+            // Ensure data is both in stack 1 and stack 2
+            #[cfg(feature = "doublestack")]
+            {
+                if i == 500 {
+                    queue.ensure_stack_full(true);
+                }
+            }
+        }
+
+        for (i, (_instant, value)) in queue.iter().enumerate() {
+            assert_eq!(*value, i * 10);
+        }
+    }
+
+    #[test]
+    fn into_iter_works() {
+        let mut queue = TtlQueue::new(Duration::MAX);
+        for i in 0..100 {
+            queue.push_back((i * 10) as usize);
+
+            // Ensure data is both in stack 1 and stack 2
+            #[cfg(feature = "doublestack")]
+            {
+                if i == 50 {
+                    queue.ensure_stack_full(true);
+                }
+            }
+        }
+
+        for (i, (_instant, value)) in queue.into_iter().enumerate() {
+            assert_eq!(value, i * 10);
+        }
     }
 }
