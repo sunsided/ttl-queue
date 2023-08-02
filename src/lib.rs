@@ -2,6 +2,12 @@
 //!
 //! A queue that drops its content after a given amount of time.
 //!
+//! ## Crate Features
+//!
+//! * `vecdeque` - Uses a `VecDeque` as the underlying data structure. Enabled by default.
+//! * `doublestack` - Uses two stacks (`Vec`) as the underlying data structure. Mutually exclusive with `vecdeque`.
+//! * `tokio` - Uses [`tokio::time::Instant`] instead of [`std::time::Instant`].
+//!
 //! ## Example
 //!
 //! To implement an FPS counter, you could use the following technique:
@@ -32,7 +38,7 @@ use std::time::Duration;
 use std::time::Instant;
 
 #[cfg(feature = "tokio")]
-use std::time::Instant;
+use tokio::time::Instant;
 
 #[cfg(feature = "vecdeque")]
 use std::collections::VecDeque;

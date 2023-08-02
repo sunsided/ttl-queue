@@ -18,4 +18,4 @@ harness = false
 criterion = "0.5.1"
 
 [dependencies]
-tokio = { version = "1.29.1", optional = true }
+tokio = { version = "1.29.1", optional = true, default-features = false, features = ["time"] }
