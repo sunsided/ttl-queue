@@ -8,6 +8,7 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Added
 
 - Added `iter()` and `IntoIter` support.
+- Added `avg_delta()` to calculate duration differences directly. 
 
 ## 0.1.0 - 2023-08-02
 

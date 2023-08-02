@@ -30,6 +30,9 @@
 //!
 //! let fps = fps_counter.refresh();
 //! debug_assert!(fps >= 95 && fps <= 105);
+//!
+//! let delta = fps_counter.avg_delta();
+//! debug_assert!(delta >= Duration::from_millis(9) && delta <= Duration::from_millis(11));
 //! ```
 
 use std::time::Duration;
@@ -67,6 +70,9 @@ use std::collections::VecDeque;
 ///
 /// let fps = fps_counter.refresh();
 /// debug_assert!(fps >= 95 && fps <= 105);
+///
+/// let delta = fps_counter.avg_delta();
+/// debug_assert!(delta >= Duration::from_millis(9) && delta <= Duration::from_millis(11));
 /// ```
 #[derive(Debug)]
 pub struct TtlQueue<T> {
@@ -108,7 +114,12 @@ impl<T> TtlQueue<T> {
 
     /// Pushes an element to the end of the queue.
     pub fn push_back(&mut self, element: T) {
-        let entry = (Instant::now(), element);
+        self.push_back_entry(Instant::now(), element)
+    }
+
+    /// Pushes an element to the end of the queue.
+    fn push_back_entry(&mut self, instant: Instant, element: T) {
+        let entry = (instant, element);
         #[cfg(feature = "doublestack")]
         {
             self.stack_1.push(entry);
@@ -252,6 +263,17 @@ impl<T> TtlQueue<T> {
         {
             self.queue.iter()
         }
+    }
+
+    /// Returns the average duration between two events.
+    pub fn avg_delta(&self) -> Duration {
+        let (count, sum) = self
+            .iter()
+            .zip(self.iter().skip(1))
+            .fold((0, Duration::ZERO), |(count, sum), (lhs, rhs)| {
+                (count + 1, sum + (rhs.0 - lhs.0))
+            });
+        sum / count
     }
 }
 
@@ -401,5 +423,18 @@ mod tests {
         for (i, (_instant, value)) in queue.into_iter().enumerate() {
             assert_eq!(value, i * 10);
         }
+    }
+
+    #[test]
+    fn avg_duration_works() {
+        let mut queue = TtlQueue::new(Duration::MAX);
+        let now = Instant::now();
+
+        for i in 0..10 {
+            queue.push_back_entry(now + Duration::from_secs(i), ());
+        }
+
+        let avg = queue.avg_delta();
+        assert_eq!(avg, Duration::from_secs(1));
     }
 }
