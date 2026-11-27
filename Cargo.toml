@@ -19,7 +19,7 @@ name = "benchmark"
 harness = false
 
 [dev-dependencies]
-criterion = "0.5.1"
+criterion = "0.8.2"
 proptest = "1.11.0"
 tokio = { version = "1", features = ["rt", "macros", "test-util", "time"] }
 
