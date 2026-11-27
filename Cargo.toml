@@ -7,13 +7,11 @@ categories = ["data-structures", "game-development"]
 repository = "https://github.com/sunsided/ttl-queue.git"
 homepage = "https://github.com/sunsided/ttl-queue"
 version = "0.2.0"
-edition = "2021"
+edition = "2024"
+rust-version = "1.85"
 license = "EUPL-1.2"
 
 [features]
-default = ["vecdeque"]
-doublestack = []
-vecdeque = []
 tokio = ["dep:tokio"]
 
 [[bench]]

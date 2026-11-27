@@ -22,3 +22,5 @@ jobs:
         run: cargo test --tests --verbose
       - name: Run doctests
         run: cargo test --doc --verbose
+      - name: Run tests with tokio
+        run: cargo test --no-default-features --features tokio --verbose

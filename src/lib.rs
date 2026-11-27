@@ -1,40 +1,8 @@
-//! # Timed Queue
-//!
-//! A queue that drops its content after a given amount of time.
-//!
-//! ## Crate Features
-//!
-//! * `vecdeque` - Uses a `VecDeque` as the underlying data structure. Enabled by default.
-//! * `doublestack` - Uses two stacks (`Vec`) as the underlying data structure. Mutually exclusive with `vecdeque`.
-//! * `tokio` - Uses [`tokio::time::Instant`] instead of [`std::time::Instant`].
-//!
-//! ## Example
-//!
-//! To implement an FPS counter, you could use the following technique:
-//!
-//! ```
-//! # use std::thread;
-//! # use std::time::Duration;
-//! # use ttl_queue::TtlQueue;
-//! let mut fps_counter = TtlQueue::new(Duration::from_secs_f64(1.0));
-//!
-//! for i in 0..=50 {
-//!     // Register a new frame and return the number of frames observed
-//!     // within the last second.
-//!     let fps = fps_counter.refresh_and_push_back(());
-//!     debug_assert!(fps >= 1);
-//!
-//!     // Sleep ~20 ms to achieve a ~50 Hz frequency.
-//!     thread::sleep(Duration::from_millis(19));
-//! }
-//!
-//! let fps = fps_counter.refresh();
-//! debug_assert!(fps >= 45 && fps <= 55);
-//!
-//! let delta = fps_counter.avg_delta();
-//! debug_assert!(delta >= Duration::from_millis(19) && delta <= Duration::from_millis(21));
-//! ```
+#![doc = include_str!("../README.md")]
+#![forbid(unsafe_code)]
 
+use std::collections::VecDeque;
+use std::collections::vec_deque;
 use std::time::Duration;
 
 #[cfg(not(feature = "tokio"))]
@@ -43,329 +11,156 @@ use std::time::Instant;
 #[cfg(feature = "tokio")]
 use tokio::time::Instant;
 
-#[cfg(feature = "vecdeque")]
-use std::collections::VecDeque;
-
 /// A queue that drops its content after a given amount of time.
 ///
-/// ## Example
+/// Elements are stored in insertion order together with the [`Instant`] at which
+/// they were pushed. Expired elements are only removed when [`refresh`](Self::refresh)
+/// (or [`refresh_and_push_back`](Self::refresh_and_push_back)) is called.
 ///
-/// To implement an FPS counter, you could use the following technique:
-///
-/// ```
-/// # use std::thread;
-/// # use std::time::Duration;
-/// # use ttl_queue::TtlQueue;
-/// let mut fps_counter = TtlQueue::new(Duration::from_secs_f64(1.0));
-///
-/// for i in 0..=50 {
-///     // Register a new frame and return the number of frames observed
-///     // within the last second.
-///     let fps = fps_counter.refresh_and_push_back(());
-///     debug_assert!(fps >= 1);
-///
-///     // Sleep ~20 ms to achieve a ~50 Hz frequency.
-///     thread::sleep(Duration::from_millis(19));
-/// }
-///
-/// let fps = fps_counter.refresh();
-/// debug_assert!(fps >= 45 && fps <= 55);
-///
-/// let delta = fps_counter.avg_delta();
-/// debug_assert!(delta >= Duration::from_millis(19) && delta <= Duration::from_millis(21));
-/// ```
+/// See the [crate-level documentation](crate) for an example.
 #[derive(Debug)]
 pub struct TtlQueue<T> {
+    /// How long an element stays in the queue after it was pushed.
     ttl: Duration,
-    #[cfg(feature = "doublestack")]
-    stack_1: Vec<(Instant, T)>,
-    #[cfg(feature = "doublestack")]
-    stack_2: Vec<(Instant, T)>,
-    #[cfg(feature = "vecdeque")]
+    /// The elements with their insertion instants, oldest at the front.
     queue: VecDeque<(Instant, T)>,
 }
 
 impl<T> TtlQueue<T> {
     /// Creates an empty [`TtlQueue`] with default capacity.
+    #[must_use]
     pub fn new(ttl: Duration) -> Self {
         Self {
             ttl,
-            #[cfg(feature = "doublestack")]
-            stack_1: Vec::new(),
-            #[cfg(feature = "doublestack")]
-            stack_2: Vec::new(),
-            #[cfg(feature = "vecdeque")]
             queue: VecDeque::new(),
         }
     }
 
     /// Creates an empty [`TtlQueue`] for at least `capacity` elements.
+    #[must_use]
     pub fn with_capacity(ttl: Duration, capacity: usize) -> Self {
         Self {
             ttl,
-            #[cfg(feature = "doublestack")]
-            stack_1: Vec::with_capacity(capacity),
-            #[cfg(feature = "doublestack")]
-            stack_2: Vec::with_capacity(capacity),
-            #[cfg(feature = "vecdeque")]
             queue: VecDeque::with_capacity(capacity),
         }
     }
 
     /// Pushes an element to the end of the queue.
     pub fn push_back(&mut self, element: T) {
-        self.push_back_entry(Instant::now(), element)
+        self.push_back_entry(Instant::now(), element);
     }
 
-    /// Pushes an element to the end of the queue.
+    /// Pushes an element to the end of the queue with an explicit insertion instant.
+    ///
+    /// Callers must push instants in non-decreasing order, or expiry and
+    /// [`avg_delta`](Self::avg_delta) give wrong results.
     fn push_back_entry(&mut self, instant: Instant, element: T) {
-        let entry = (instant, element);
-        #[cfg(feature = "doublestack")]
-        {
-            self.stack_1.push(entry);
-        }
-        #[cfg(feature = "vecdeque")]
-        {
-            self.queue.push_back(entry)
-        }
+        self.queue.push_back((instant, element));
     }
 
-    /// Pushes an element to the end of the queue and returns the number of items
-    /// currently in the queue. This operation is O(N) at worst.
+    /// Refreshes the queue, pushes an element to the end and returns the number of
+    /// items currently in the queue. This operation is O(N) at worst.
     pub fn refresh_and_push_back(&mut self, element: T) -> usize {
         let count = self.refresh();
         self.push_back(element);
+
         count + 1
     }
 
-    /// Gets the element from the front of the queue if it exists, as well as the
-    /// time instant at which it was added.
+    /// Removes the element from the front of the queue if it exists, and returns it
+    /// together with the time instant at which it was added.
     pub fn pop_front(&mut self) -> Option<(Instant, T)> {
-        #[cfg(feature = "doublestack")]
-        {
-            self.ensure_stack_full(false);
-            self.stack_2.pop()
-        }
-        #[cfg(feature = "vecdeque")]
-        {
-            self.queue.pop_front()
-        }
+        self.queue.pop_front()
     }
 
     /// Similar to [`pop_front`](Self::pop_front) but without removing the element.
-    pub fn peek_front(&mut self) -> Option<&(Instant, T)> {
-        #[cfg(feature = "doublestack")]
-        {
-            self.ensure_stack_full(false);
-            self.stack_2.first()
-        }
-        #[cfg(feature = "vecdeque")]
-        {
-            self.queue.front()
-        }
-    }
-
-    #[cfg(feature = "doublestack")]
-    fn ensure_stack_full(&mut self, force: bool) {
-        if self.stack_2.is_empty() || force {
-            while let Some(item) = self.stack_1.pop() {
-                self.stack_2.push(item);
-            }
-        }
+    #[must_use]
+    pub fn peek_front(&self) -> Option<&(Instant, T)> {
+        self.queue.front()
     }
 
     /// Gets the number elements currently in the queue, including potentially expired elements.
     ///
     /// This operation is O(1). In order to obtain an accurate count in O(N) (worst-case),
     /// use [`refresh`](Self::refresh) instead.
+    #[must_use]
     pub fn len(&self) -> usize {
-        #[cfg(feature = "doublestack")]
-        {
-            self.stack_1.len() + self.stack_2.len()
-        }
-        #[cfg(feature = "vecdeque")]
-        {
-            self.queue.len()
-        }
+        self.queue.len()
     }
 
-    /// Returns `true` if the queue is definitely empty or `false` if the queue is
-    /// possibly empty.
+    /// Returns `true` if the queue holds no elements, not even expired ones.
     ///
     /// This operation is O(1). In order to obtain an accurate count in O(N) (worst-case),
     /// use [`refresh`](Self::refresh) instead.
+    #[must_use]
     pub fn is_empty(&self) -> bool {
-        #[cfg(feature = "doublestack")]
-        {
-            self.stack_1.is_empty() && self.stack_2.is_empty()
-        }
-        #[cfg(feature = "vecdeque")]
-        {
-            self.queue.is_empty()
-        }
+        self.queue.is_empty()
     }
 
-    /// Refreshes the queue and returns the number of currently contained elements.
-    #[cfg(feature = "doublestack")]
+    /// Drops all expired elements and returns the number of remaining elements.
     pub fn refresh(&mut self) -> usize {
-        let now = Instant::now();
-
-        while let Some((instant, _element)) = self.stack_2.first() {
-            if (now - *instant) < self.ttl {
-                break;
-            }
-
-            let _result = self.stack_2.pop();
-            debug_assert!(_result.is_some());
-        }
-
-        if !self.stack_2.is_empty() {
-            return self.len();
-        }
-
-        while let Some((instant, _element)) = self.stack_1.first() {
-            if (now - *instant) < self.ttl {
-                break;
-            }
-
-            let _result = self.stack_1.pop();
-            debug_assert!(_result.is_some());
-        }
-
-        debug_assert_eq!(self.stack_1.len(), self.len());
-        self.stack_1.len()
+        self.refresh_at(Instant::now())
     }
 
-    /// Refreshes the queue and returns the number of currently contained elements.
-    #[cfg(feature = "vecdeque")]
-    pub fn refresh(&mut self) -> usize {
-        let now = Instant::now();
-
-        while let Some((instant, _element)) = self.queue.front() {
-            if (now - *instant) < self.ttl {
-                break;
-            }
-
-            let _result = self.queue.pop_front();
-            debug_assert!(_result.is_some());
+    /// Drops all elements that are expired at `now` and returns the number of
+    /// remaining elements.
+    ///
+    /// An element pushed at `t` is expired once `now - t >= ttl`.
+    fn refresh_at(&mut self, now: Instant) -> usize {
+        while self
+            .queue
+            .front()
+            .is_some_and(|(instant, _)| now - *instant >= self.ttl)
+        {
+            self.queue.pop_front();
         }
 
         self.queue.len()
     }
 
-    /// Returns an iterator to the data.
-    pub fn iter(&self) -> impl Iterator<Item = &(Instant, T)> {
-        #[cfg(feature = "doublestack")]
-        {
-            return DoubleStackIterator::new(&self);
-        }
-        #[cfg(feature = "vecdeque")]
-        {
-            self.queue.iter()
-        }
+    /// Returns an iterator over the elements, oldest first, including potentially
+    /// expired elements.
+    #[must_use]
+    pub fn iter(&self) -> vec_deque::Iter<'_, (Instant, T)> {
+        self.queue.iter()
     }
 
-    /// Returns the average duration between two events.
+    /// Returns the average duration between two consecutive elements.
+    ///
+    /// Includes potentially expired elements; call [`refresh`](Self::refresh) first
+    /// for an accurate value. Returns [`Duration::ZERO`] for fewer than two elements.
+    #[must_use]
     pub fn avg_delta(&self) -> Duration {
-        if self.len() <= 1 {
+        let (Some(first), Some(last)) = (self.queue.front(), self.queue.back()) else {
+            return Duration::ZERO;
+        };
+
+        let gaps = self.queue.len() - 1;
+        if gaps == 0 {
             return Duration::ZERO;
         }
 
-        let (count, sum) = self
-            .iter()
-            .zip(self.iter().skip(1))
-            .fold((0, Duration::ZERO), |(count, sum), (lhs, rhs)| {
-                (count + 1, sum + (rhs.0 - lhs.0))
-            });
-
-        debug_assert_ne!(count, 0);
-        sum / count
+        // shortcut: saturates above u32::MAX gaps, upgrade if queues ever get that large.
+        let gaps = u32::try_from(gaps).unwrap_or(u32::MAX);
+        (last.0 - first.0) / gaps
     }
 }
 
 impl<T> IntoIterator for TtlQueue<T> {
     type Item = (Instant, T);
-
-    #[cfg(feature = "vecdeque")]
-    type IntoIter = std::collections::vec_deque::IntoIter<Self::Item>;
-
-    #[cfg(feature = "doublestack")]
-    type IntoIter = std::iter::Chain<
-        std::iter::Rev<std::vec::IntoIter<Self::Item>>,
-        std::vec::IntoIter<Self::Item>,
-    >;
+    type IntoIter = vec_deque::IntoIter<Self::Item>;
 
     fn into_iter(self) -> Self::IntoIter {
-        #[cfg(feature = "vecdeque")]
-        {
-            self.queue.into_iter()
-        }
-        #[cfg(feature = "doublestack")]
-        {
-            self.stack_2
-                .into_iter()
-                .rev()
-                .chain(self.stack_1.into_iter())
-        }
+        self.queue.into_iter()
     }
 }
 
-#[cfg(feature = "doublestack")]
-pub struct DoubleStackIterator<'a, T> {
-    queue: &'a TtlQueue<T>,
-    stage: DoubleStackIteratorStage<'a, T>,
-}
-
-#[cfg(feature = "doublestack")]
-enum DoubleStackIteratorStage<'a, T> {
-    First(std::iter::Rev<std::slice::Iter<'a, (Instant, T)>>),
-    Second(std::slice::Iter<'a, (Instant, T)>),
-    Done,
-}
-
-#[cfg(feature = "doublestack")]
-impl<'a, T> Iterator for DoubleStackIteratorStage<'a, T> {
+impl<'a, T> IntoIterator for &'a TtlQueue<T> {
     type Item = &'a (Instant, T);
+    type IntoIter = vec_deque::Iter<'a, (Instant, T)>;
 
-    fn next(&mut self) -> Option<Self::Item> {
-        match self {
-            DoubleStackIteratorStage::First(iter) => iter.next(),
-            DoubleStackIteratorStage::Second(iter) => iter.next(),
-            DoubleStackIteratorStage::Done => None,
-        }
-    }
-}
-
-#[cfg(feature = "doublestack")]
-impl<'a, T> DoubleStackIterator<'a, T> {
-    pub fn new(queue: &'a TtlQueue<T>) -> Self {
-        Self {
-            queue,
-            stage: DoubleStackIteratorStage::First(queue.stack_2.iter().rev()),
-        }
-    }
-}
-
-#[cfg(feature = "doublestack")]
-impl<'a, T> Iterator for DoubleStackIterator<'a, T> {
-    type Item = &'a (Instant, T);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        loop {
-            if let Some(element) = self.stage.next() {
-                return Some(element);
-            }
-
-            if matches!(self.stage, DoubleStackIteratorStage::First(..)) {
-                self.stage = DoubleStackIteratorStage::Second(self.queue.stack_1.iter());
-                continue;
-            }
-
-            debug_assert!(matches!(self.stage, DoubleStackIteratorStage::Second(..)));
-
-            self.stage = DoubleStackIteratorStage::Done;
-            return None;
-        }
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
     }
 }
 
@@ -374,6 +169,7 @@ mod tests {
     use super::*;
     use std::thread;
 
+    /// Pushing, popping and expiry work in insertion order.
     #[test]
     fn it_works() {
         let mut queue = TtlQueue::new(Duration::from_millis(50));
@@ -384,101 +180,117 @@ mod tests {
 
         let value = queue.pop_front().unwrap();
         assert_eq!(value.1, 10);
-
         assert_eq!(queue.refresh(), 2);
 
         thread::sleep(Duration::from_millis(50));
         assert_eq!(queue.refresh(), 0);
     }
 
+    /// `peek_front` returns the same element `pop_front` removes next.
+    #[test]
+    fn peek_matches_pop() {
+        let mut queue = TtlQueue::new(Duration::MAX);
+        queue.push_back(1);
+        queue.push_back(2);
+        queue.push_back(3);
+
+        let peeked = queue.peek_front().unwrap().1;
+        assert_eq!(peeked, 1);
+        assert_eq!(queue.pop_front().unwrap().1, peeked);
+    }
+
+    /// `refresh` drops only expired elements and keeps fresh ones.
+    #[test]
+    fn refresh_drops_only_expired() {
+        let mut queue = TtlQueue::new(Duration::from_millis(50));
+        queue.push_back(1);
+        thread::sleep(Duration::from_millis(60));
+        queue.push_back(2);
+
+        assert_eq!(queue.refresh(), 1);
+        assert_eq!(queue.pop_front().unwrap().1, 2);
+    }
+
+    /// `iter` yields elements oldest first.
     #[test]
     fn iter_works() {
         let mut queue = TtlQueue::new(Duration::MAX);
-        for i in 0..1000 {
-            queue.push_back((i * 10) as usize);
-
-            // Ensure data is both in stack 1 and stack 2
-            #[cfg(feature = "doublestack")]
-            {
-                if i == 500 {
-                    queue.ensure_stack_full(true);
-                }
-            }
+        for i in 0..1000_usize {
+            queue.push_back(i * 10);
         }
 
-        for (i, (_instant, value)) in queue.iter().enumerate() {
-            assert_eq!(*value, i * 10);
-        }
+        let values: Vec<usize> = queue.iter().map(|(_, v)| *v).collect();
+        assert_eq!(values, (0..1000).map(|i| i * 10).collect::<Vec<_>>());
     }
 
+    /// Iterating `&TtlQueue` matches [`TtlQueue::iter`].
+    #[test]
+    fn ref_into_iter_works() {
+        let mut queue = TtlQueue::new(Duration::MAX);
+        queue.push_back(1);
+        queue.push_back(2);
+
+        let values: Vec<i32> = (&queue).into_iter().map(|(_, v)| *v).collect();
+        assert_eq!(values, [1, 2]);
+    }
+
+    /// `into_iter` yields elements oldest first.
     #[test]
     fn into_iter_works() {
         let mut queue = TtlQueue::new(Duration::MAX);
-        for i in 0..100 {
-            queue.push_back((i * 10) as usize);
-
-            // Ensure data is both in stack 1 and stack 2
-            #[cfg(feature = "doublestack")]
-            {
-                if i == 50 {
-                    queue.ensure_stack_full(true);
-                }
-            }
+        for i in 0..100_usize {
+            queue.push_back(i * 10);
         }
 
-        for (i, (_instant, value)) in queue.into_iter().enumerate() {
-            assert_eq!(value, i * 10);
-        }
+        let values: Vec<usize> = queue.into_iter().map(|(_, v)| v).collect();
+        assert_eq!(values, (0..100).map(|i| i * 10).collect::<Vec<_>>());
     }
 
+    /// `avg_delta` averages the gaps between evenly spaced instants.
     #[test]
     fn avg_duration_works() {
         let mut queue = TtlQueue::new(Duration::MAX);
         let now = Instant::now();
-
         for i in 0..10 {
             queue.push_back_entry(now + Duration::from_secs(i), ());
         }
 
-        let avg = queue.avg_delta();
-        assert_eq!(avg, Duration::from_secs(1));
+        assert_eq!(queue.avg_delta(), Duration::from_secs(1));
     }
 
+    /// `avg_delta` averages uneven gaps.
+    #[test]
+    fn avg_duration_uneven_works() {
+        let mut queue = TtlQueue::new(Duration::MAX);
+        let now = Instant::now();
+        for secs in [0, 1, 5] {
+            queue.push_back_entry(now + Duration::from_secs(secs), ());
+        }
+
+        assert_eq!(queue.avg_delta(), Duration::from_millis(2500));
+    }
+
+    /// `avg_delta` of an empty queue is zero.
     #[test]
     fn avg_duration_with_zero_inputs_works() {
         let queue = TtlQueue::<()>::new(Duration::MAX);
-
-        let avg = queue.avg_delta();
-        assert_eq!(avg, Duration::ZERO);
+        assert_eq!(queue.avg_delta(), Duration::ZERO);
     }
 
+    /// `avg_delta` of a single element is zero.
     #[test]
     fn avg_duration_with_one_inputs_works() {
         let mut queue = TtlQueue::new(Duration::MAX);
         queue.push_back(());
-
-        let avg = queue.avg_delta();
-        assert_eq!(avg, Duration::ZERO);
+        assert_eq!(queue.avg_delta(), Duration::ZERO);
     }
 
+    /// `refresh_and_push_back` counts the new element plus all unexpired ones.
     #[test]
-    fn fps_counter() {
-        let mut fps_counter = TtlQueue::new(Duration::from_secs(1));
-
-        for _i in 0..50 {
-            // Register a new frame and return the number of frames observed
-            // within the last second.
-            let fps = fps_counter.refresh_and_push_back(());
-            debug_assert!(fps >= 1);
-
-            // Sleep ~20 ms to achieve a ~50 Hz frequency.
-            thread::sleep(Duration::from_millis(19));
+    fn refresh_and_push_back_counts() {
+        let mut queue = TtlQueue::new(Duration::MAX);
+        for expected in 1..=50 {
+            assert_eq!(queue.refresh_and_push_back(()), expected);
         }
-
-        let fps = fps_counter.refresh();
-        debug_assert!(fps >= 45 && fps <= 55);
-
-        let delta = fps_counter.avg_delta();
-        debug_assert!(delta >= Duration::from_millis(19) && delta <= Duration::from_millis(21));
     }
 }
