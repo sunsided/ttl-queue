@@ -25,6 +25,8 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Added
 
 - `IntoIterator` for `&TtlQueue<T>`.
+- Property tests (proptest) against a reference model, Kani proofs for `refresh` and
+  `avg_delta`, and mutation testing (cargo-mutants), all run in CI.
 
 ## [0.2.0] - 2023-08-02
 

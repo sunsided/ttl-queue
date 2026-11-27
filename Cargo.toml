@@ -20,9 +20,13 @@ harness = false
 
 [dev-dependencies]
 criterion = "0.5.1"
+proptest = "1.11.0"
 tokio = { version = "1", features = ["rt", "macros", "test-util", "time"] }
 
 [dependencies]
 timebridge = "0.1.0"
 timebridge-clock = "0.1.0"
 tokio = { version = "1.37.0", optional = true, default-features = false, features = ["time"] }
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(kani)"] }

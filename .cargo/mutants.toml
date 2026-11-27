@@ -1,0 +1,2 @@
+# Proof harnesses and test code are not under test themselves.
+exclude_globs = ["src/kani_proofs.rs", "src/proptests.rs"]

@@ -14,6 +14,12 @@ mod tokio_clock;
 #[cfg(feature = "tokio")]
 pub use tokio_clock::TokioClock;
 
+#[cfg(kani)]
+mod kani_proofs;
+
+#[cfg(test)]
+mod proptests;
+
 /// A queue that drops its content after a given amount of time.
 ///
 /// Elements are stored in insertion order together with the clock reading at which

@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Build
         run: cargo build --verbose
       - name: Run tests
@@ -24,3 +24,26 @@ jobs:
         run: cargo test --doc --verbose
       - name: Run tests with tokio
         run: cargo test --no-default-features --features tokio --verbose
+
+  kani:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Verify Kani proofs
+        uses: model-checking/kani-github-action@v1.1
+
+  mutants:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-mutants
+      - name: Run mutation tests
+        run: cargo mutants --all-features --no-shuffle -vV
+      - name: Upload mutants report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: mutants.out
+          path: mutants.out
