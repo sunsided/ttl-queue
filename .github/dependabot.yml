@@ -1,0 +1,33 @@
+# One block per ecosystem; within each, majors and minor/patch updates are separate groups, so a
+# breaking upgrade never hides inside a routine bump. Commit subjects get an ecosystem prefix
+# ("Cargo: Bump ...") instead of Conventional Commits prefixes (no "deps:", "chore:").
+# cooldown follows zizmor's dependabot-cooldown recommendation (7 days).
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: Cargo
+    groups:
+      cargo-major:
+        update-types: [major]
+      cargo-minor-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: Actions
+    groups:
+      actions-major:
+        update-types: [major]
+      actions-minor-patch:
+        update-types: [minor, patch]

@@ -29,6 +29,7 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `avg_delta`, and mutation testing (cargo-mutants), all run in CI.
 - CI lints the workflows with actionlint and zizmor. Workflows use least-privilege
   permissions and SHA-pinned actions.
+- Dependabot keeps Cargo dependencies and GitHub Actions up to date (weekly, 7-day cooldown).
 
 ## [0.2.0] - 2023-08-02
 
