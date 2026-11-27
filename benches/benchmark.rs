@@ -1,4 +1,5 @@
-use criterion::{Criterion, Throughput, black_box, criterion_group, criterion_main};
+use criterion::{Criterion, Throughput, criterion_group, criterion_main};
+use std::hint::black_box;
 use std::time::Duration;
 use ttl_queue::TtlQueue;
 
