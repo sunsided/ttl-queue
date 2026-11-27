@@ -2,7 +2,7 @@
 name = "ttl-queue"
 description = "A queue that drops its content after a given amount of time."
 authors = ["Markus Mayer"]
-keywords = ["queue", "ttl", "fps-counter"]
+keywords = ["queue", "ttl", "expiring", "sliding-window", "fps-counter"]
 categories = ["data-structures", "game-development"]
 repository = "https://github.com/sunsided/ttl-queue.git"
 homepage = "https://github.com/sunsided/ttl-queue"

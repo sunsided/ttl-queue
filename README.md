@@ -1,11 +1,18 @@
-# Timed Queue
+# ttl-queue
 
 A queue that drops its content after a given amount of time.
 
-## Crate Features
+Expired elements are removed when you call `refresh` or `refresh_and_push_back`;
+`len`, `iter` and `avg_delta` also see elements that have expired since the last refresh.
 
-Time comes from a [`MonotonicClock`] from [timebridge]. The default is
-[`SystemClock`] ([`std::time::Instant`]); `TtlQueue::with_clock` takes any other.
+## Clocks
+
+Time comes from a [`MonotonicClock`] from [timebridge]. `TtlQueue::new` uses
+[`SystemClock`] ([`std::time::Instant`]); `TtlQueue::with_clock(ttl, clock)` takes any
+other clock, such as a manual clock in tests. Both are re-exported as
+`ttl_queue::MonotonicClock` and `ttl_queue::SystemClock`.
+
+## Crate Features
 
 * `tokio` - Adds `TokioClock`, backed by [`tokio::time::Instant`], so paused tokio time
   drives expiry: `TtlQueue::with_clock(ttl, TokioClock)`.
