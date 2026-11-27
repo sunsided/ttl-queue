@@ -4,7 +4,11 @@ A queue that drops its content after a given amount of time.
 
 ## Crate Features
 
-* `tokio` - Uses [`tokio::time::Instant`] instead of [`std::time::Instant`].
+Time comes from a [`MonotonicClock`] from [timebridge]. The default is
+[`SystemClock`] ([`std::time::Instant`]); `TtlQueue::with_clock` takes any other.
+
+* `tokio` - Adds `TokioClock`, backed by [`tokio::time::Instant`], so paused tokio time
+  drives expiry: `TtlQueue::with_clock(ttl, TokioClock)`.
 
 ## Example
 
@@ -34,3 +38,6 @@ println!("{fps} frames in the last second, {delta:?} between frames");
 
 [`tokio::time::Instant`]: https://docs.rs/tokio/latest/tokio/time/struct.Instant.html
 [`std::time::Instant`]: https://doc.rust-lang.org/std/time/struct.Instant.html
+[`MonotonicClock`]: https://docs.rs/timebridge/latest/timebridge/trait.MonotonicClock.html
+[`SystemClock`]: https://docs.rs/timebridge-clock/latest/timebridge_clock/struct.SystemClock.html
+[timebridge]: https://crates.io/crates/timebridge

@@ -10,7 +10,12 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Breaking: removed the `vecdeque` and `doublestack` features; `VecDeque` is always used.
   The `doublestack` backend returned elements in the wrong order.
 - Breaking: `peek_front` now takes `&self`, and `iter` returns `std::collections::vec_deque::Iter`.
-- Upgraded to Rust edition 2024 (MSRV 1.85).
+- Breaking: time comes from a timebridge `MonotonicClock`. `TtlQueue<T, C = SystemClock>`
+  keeps `new`/`with_capacity` on the system clock; `with_clock(ttl, clock)` takes any
+  other clock.
+- Breaking: the `tokio` feature no longer swaps the global `Instant`; it adds `TokioClock`,
+  used as `TtlQueue::with_clock(ttl, TokioClock)`.
+- Upgraded to Rust edition 2024 (MSRV 1.88, required by timebridge).
 - `avg_delta` now runs in O(1).
 
 ### Fixed

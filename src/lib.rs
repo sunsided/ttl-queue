@@ -5,57 +5,69 @@ use std::collections::VecDeque;
 use std::collections::vec_deque;
 use std::time::Duration;
 
-#[cfg(not(feature = "tokio"))]
-use std::time::Instant;
+pub use timebridge::MonotonicClock;
+pub use timebridge_clock::SystemClock;
 
 #[cfg(feature = "tokio")]
-use tokio::time::Instant;
+mod tokio_clock;
+
+#[cfg(feature = "tokio")]
+pub use tokio_clock::TokioClock;
 
 /// A queue that drops its content after a given amount of time.
 ///
-/// Elements are stored in insertion order together with the [`Instant`] at which
+/// Elements are stored in insertion order together with the clock reading at which
 /// they were pushed. Expired elements are only removed when [`refresh`](Self::refresh)
 /// (or [`refresh_and_push_back`](Self::refresh_and_push_back)) is called.
 ///
+/// Time comes from a [`MonotonicClock`]; [`SystemClock`] (backed by
+/// [`std::time::Instant`]) is the default. Use [`with_clock`](Self::with_clock) to
+/// supply another one, such as `TokioClock` (feature `tokio`) or a manual test clock.
+///
 /// See the [crate-level documentation](crate) for an example.
 #[derive(Debug)]
-pub struct TtlQueue<T> {
+pub struct TtlQueue<T, C: MonotonicClock = SystemClock> {
     /// How long an element stays in the queue after it was pushed.
     ttl: Duration,
+    /// The time source for insertion instants and expiry checks.
+    clock: C,
     /// The elements with their insertion instants, oldest at the front.
-    queue: VecDeque<(Instant, T)>,
+    queue: VecDeque<(C::Instant, T)>,
 }
 
 impl<T> TtlQueue<T> {
-    /// Creates an empty [`TtlQueue`] with default capacity.
+    /// Creates an empty [`TtlQueue`] on the [`SystemClock`] with default capacity.
     #[must_use]
     pub fn new(ttl: Duration) -> Self {
-        Self {
-            ttl,
-            queue: VecDeque::new(),
-        }
+        Self::with_clock(ttl, SystemClock)
     }
 
-    /// Creates an empty [`TtlQueue`] for at least `capacity` elements.
+    /// Creates an empty [`TtlQueue`] on the [`SystemClock`] for at least `capacity` elements.
     #[must_use]
     pub fn with_capacity(ttl: Duration, capacity: usize) -> Self {
         Self {
             ttl,
+            clock: SystemClock,
             queue: VecDeque::with_capacity(capacity),
+        }
+    }
+}
+
+impl<T, C: MonotonicClock> TtlQueue<T, C> {
+    /// Creates an empty [`TtlQueue`] that reads time from `clock`.
+    #[must_use]
+    pub fn with_clock(ttl: Duration, clock: C) -> Self {
+        Self {
+            ttl,
+            clock,
+            queue: VecDeque::new(),
         }
     }
 
     /// Pushes an element to the end of the queue.
     pub fn push_back(&mut self, element: T) {
-        self.push_back_entry(Instant::now(), element);
-    }
-
-    /// Pushes an element to the end of the queue with an explicit insertion instant.
-    ///
-    /// Callers must push instants in non-decreasing order, or expiry and
-    /// [`avg_delta`](Self::avg_delta) give wrong results.
-    fn push_back_entry(&mut self, instant: Instant, element: T) {
-        self.queue.push_back((instant, element));
+        let now = self.clock.read();
+        self.queue.push_back((now, element));
     }
 
     /// Refreshes the queue, pushes an element to the end and returns the number of
@@ -68,14 +80,14 @@ impl<T> TtlQueue<T> {
     }
 
     /// Removes the element from the front of the queue if it exists, and returns it
-    /// together with the time instant at which it was added.
-    pub fn pop_front(&mut self) -> Option<(Instant, T)> {
+    /// together with the clock reading at which it was added.
+    pub fn pop_front(&mut self) -> Option<(C::Instant, T)> {
         self.queue.pop_front()
     }
 
     /// Similar to [`pop_front`](Self::pop_front) but without removing the element.
     #[must_use]
-    pub fn peek_front(&self) -> Option<&(Instant, T)> {
+    pub fn peek_front(&self) -> Option<&(C::Instant, T)> {
         self.queue.front()
     }
 
@@ -98,19 +110,15 @@ impl<T> TtlQueue<T> {
     }
 
     /// Drops all expired elements and returns the number of remaining elements.
-    pub fn refresh(&mut self) -> usize {
-        self.refresh_at(Instant::now())
-    }
-
-    /// Drops all elements that are expired at `now` and returns the number of
-    /// remaining elements.
     ///
     /// An element pushed at `t` is expired once `now - t >= ttl`.
-    fn refresh_at(&mut self, now: Instant) -> usize {
+    pub fn refresh(&mut self) -> usize {
+        let now = self.clock.read();
+
         while self
             .queue
             .front()
-            .is_some_and(|(instant, _)| now - *instant >= self.ttl)
+            .is_some_and(|(instant, _)| self.span(*instant, now) >= self.ttl)
         {
             self.queue.pop_front();
         }
@@ -121,7 +129,7 @@ impl<T> TtlQueue<T> {
     /// Returns an iterator over the elements, oldest first, including potentially
     /// expired elements.
     #[must_use]
-    pub fn iter(&self) -> vec_deque::Iter<'_, (Instant, T)> {
+    pub fn iter(&self) -> vec_deque::Iter<'_, (C::Instant, T)> {
         self.queue.iter()
     }
 
@@ -142,12 +150,17 @@ impl<T> TtlQueue<T> {
 
         // shortcut: saturates above u32::MAX gaps, upgrade if queues ever get that large.
         let gaps = u32::try_from(gaps).unwrap_or(u32::MAX);
-        (last.0 - first.0) / gaps
+        self.span(first.0, last.0) / gaps
+    }
+
+    /// Returns the time from `start` to `end`, or zero if `end` is earlier.
+    fn span(&self, start: C::Instant, end: C::Instant) -> Duration {
+        Duration::try_from(self.clock.duration_between(start, end)).unwrap_or(Duration::ZERO)
     }
 }
 
-impl<T> IntoIterator for TtlQueue<T> {
-    type Item = (Instant, T);
+impl<T, C: MonotonicClock> IntoIterator for TtlQueue<T, C> {
+    type Item = (C::Instant, T);
     type IntoIter = vec_deque::IntoIter<Self::Item>;
 
     fn into_iter(self) -> Self::IntoIter {
@@ -155,9 +168,9 @@ impl<T> IntoIterator for TtlQueue<T> {
     }
 }
 
-impl<'a, T> IntoIterator for &'a TtlQueue<T> {
-    type Item = &'a (Instant, T);
-    type IntoIter = vec_deque::Iter<'a, (Instant, T)>;
+impl<'a, T, C: MonotonicClock> IntoIterator for &'a TtlQueue<T, C> {
+    type Item = &'a (C::Instant, T);
+    type IntoIter = vec_deque::Iter<'a, (C::Instant, T)>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
@@ -167,12 +180,19 @@ impl<'a, T> IntoIterator for &'a TtlQueue<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::thread;
+    use timebridge::Timestamp;
+    use timebridge_clock::ManualClock;
+
+    /// A manual clock starting at the Unix epoch.
+    fn manual_clock() -> ManualClock {
+        ManualClock::new(Timestamp::UNIX_EPOCH)
+    }
 
     /// Pushing, popping and expiry work in insertion order.
     #[test]
     fn it_works() {
-        let mut queue = TtlQueue::new(Duration::from_millis(50));
+        let clock = manual_clock();
+        let mut queue = TtlQueue::with_clock(Duration::from_millis(50), &clock);
         queue.push_back(10);
         queue.push_back(20);
         queue.push_back(30);
@@ -182,14 +202,22 @@ mod tests {
         assert_eq!(value.1, 10);
         assert_eq!(queue.refresh(), 2);
 
-        thread::sleep(Duration::from_millis(50));
+        clock.advance(Duration::from_millis(50));
         assert_eq!(queue.refresh(), 0);
+    }
+
+    /// The default [`SystemClock`] queue keeps fresh elements.
+    #[test]
+    fn system_clock_works() {
+        let mut queue = TtlQueue::new(Duration::MAX);
+        queue.push_back(1);
+        assert_eq!(queue.refresh_and_push_back(2), 2);
     }
 
     /// `peek_front` returns the same element `pop_front` removes next.
     #[test]
     fn peek_matches_pop() {
-        let mut queue = TtlQueue::new(Duration::MAX);
+        let mut queue = TtlQueue::with_clock(Duration::MAX, manual_clock());
         queue.push_back(1);
         queue.push_back(2);
         queue.push_back(3);
@@ -202,9 +230,10 @@ mod tests {
     /// `refresh` drops only expired elements and keeps fresh ones.
     #[test]
     fn refresh_drops_only_expired() {
-        let mut queue = TtlQueue::new(Duration::from_millis(50));
+        let clock = manual_clock();
+        let mut queue = TtlQueue::with_clock(Duration::from_millis(50), &clock);
         queue.push_back(1);
-        thread::sleep(Duration::from_millis(60));
+        clock.advance(Duration::from_millis(60));
         queue.push_back(2);
 
         assert_eq!(queue.refresh(), 1);
@@ -214,7 +243,7 @@ mod tests {
     /// `iter` yields elements oldest first.
     #[test]
     fn iter_works() {
-        let mut queue = TtlQueue::new(Duration::MAX);
+        let mut queue = TtlQueue::with_clock(Duration::MAX, manual_clock());
         for i in 0..1000_usize {
             queue.push_back(i * 10);
         }
@@ -226,7 +255,7 @@ mod tests {
     /// Iterating `&TtlQueue` matches [`TtlQueue::iter`].
     #[test]
     fn ref_into_iter_works() {
-        let mut queue = TtlQueue::new(Duration::MAX);
+        let mut queue = TtlQueue::with_clock(Duration::MAX, manual_clock());
         queue.push_back(1);
         queue.push_back(2);
 
@@ -237,7 +266,7 @@ mod tests {
     /// `into_iter` yields elements oldest first.
     #[test]
     fn into_iter_works() {
-        let mut queue = TtlQueue::new(Duration::MAX);
+        let mut queue = TtlQueue::with_clock(Duration::MAX, manual_clock());
         for i in 0..100_usize {
             queue.push_back(i * 10);
         }
@@ -249,10 +278,11 @@ mod tests {
     /// `avg_delta` averages the gaps between evenly spaced instants.
     #[test]
     fn avg_duration_works() {
-        let mut queue = TtlQueue::new(Duration::MAX);
-        let now = Instant::now();
-        for i in 0..10 {
-            queue.push_back_entry(now + Duration::from_secs(i), ());
+        let clock = manual_clock();
+        let mut queue = TtlQueue::with_clock(Duration::MAX, &clock);
+        for _ in 0..10 {
+            queue.push_back(());
+            clock.advance(Duration::from_secs(1));
         }
 
         assert_eq!(queue.avg_delta(), Duration::from_secs(1));
@@ -261,10 +291,11 @@ mod tests {
     /// `avg_delta` averages uneven gaps.
     #[test]
     fn avg_duration_uneven_works() {
-        let mut queue = TtlQueue::new(Duration::MAX);
-        let now = Instant::now();
-        for secs in [0, 1, 5] {
-            queue.push_back_entry(now + Duration::from_secs(secs), ());
+        let clock = manual_clock();
+        let mut queue = TtlQueue::with_clock(Duration::MAX, &clock);
+        for gap in [0, 1, 4] {
+            clock.advance(Duration::from_secs(gap));
+            queue.push_back(());
         }
 
         assert_eq!(queue.avg_delta(), Duration::from_millis(2500));
@@ -288,7 +319,7 @@ mod tests {
     /// `refresh_and_push_back` counts the new element plus all unexpired ones.
     #[test]
     fn refresh_and_push_back_counts() {
-        let mut queue = TtlQueue::new(Duration::MAX);
+        let mut queue = TtlQueue::with_clock(Duration::MAX, manual_clock());
         for expected in 1..=50 {
             assert_eq!(queue.refresh_and_push_back(()), expected);
         }
